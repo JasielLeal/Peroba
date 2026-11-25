@@ -76,6 +76,13 @@ function bancarioDeBarras(b: string): BoletoLido {
   };
 }
 
+// 4º dígito do código de arrecadação: DV geral sobre os outros 43 dígitos (módulo 10 se o 3º dígito é 6/7, 11 se 8/9).
+function dvGeralConvenioConfere(b: string): boolean {
+  const resto = b.slice(0, 3) + b.slice(4);
+  const dv = b[2] === "6" || b[2] === "7" ? mod10(resto) : mod11Convenio(resto);
+  return dv === Number(b[3]);
+}
+
 function convenioDeBarras(b: string): BoletoLido {
   const mod = b[2] === "6" || b[2] === "7" ? mod10 : mod11Convenio;
   let linha = "";
@@ -111,16 +118,67 @@ function barrasDeLinha(l: string): string | null {
 export function lerBoleto(entrada: string): BoletoLido | null {
   const d = entrada.replace(/\D/g, "");
   if (d.length === 44) {
-    if (d[0] === "8") return convenioDeBarras(d);
+    if (d[0] === "8") return dvGeralConvenioConfere(d) ? convenioDeBarras(d) : null;
     return dvGeralConfere(d) ? bancarioDeBarras(d) : null;
   }
   if (d.length === 47 || d.length === 48) {
     const barras = barrasDeLinha(d);
     if (!barras) return null; // dígito verificador não bate: provável erro de leitura/digitação
     if (d.length === 47) return dvGeralConfere(barras) ? bancarioDeBarras(barras) : null; // valor/vencimento não podem ter erro
-    return convenioDeBarras(barras);
+    return dvGeralConvenioConfere(barras) ? convenioDeBarras(barras) : null;
   }
   return null;
+}
+
+/**
+ * Recombina várias leituras da mesma linha digitável (de tentativas diferentes): cada grupo (campo) é
+ * escolhido entre as leituras, e só valem as combinações que fecham em TODOS os dígitos verificadores.
+ * Resolve o caso em que uma leitura errou o grupo 2 e outra errou o grupo 4.
+ */
+export function combinarLeituras(leituras: string[]): BoletoLido[] {
+  const digitos = leituras.map((l) => l.replace(/D/g, "")).filter(Boolean);
+  const achados = new Map<string, BoletoLido>();
+  const moldes: [number, number[]][] = [
+    [48, [0, 12, 24, 36, 48]],
+    [47, [0, 10, 21, 32, 47]],
+  ];
+  for (const [tamanho, cortes] of moldes) {
+    const mesmas = digitos.filter((d) => d.length === tamanho);
+    if (mesmas.length < 2) continue;
+    // Opções distintas para cada grupo, na ordem em que apareceram
+    const opcoes = cortes.slice(0, -1).map((ini, i) => [...new Set(mesmas.map((d) => d.slice(ini, cortes[i + 1])))]);
+    if (opcoes.reduce((n, o) => n * o.length, 1) > 256) continue;
+    let combos: string[] = [""];
+    for (const o of opcoes) combos = combos.flatMap((c) => o.map((g) => c + g));
+    for (const c of combos) {
+      const r = lerBoleto(c);
+      if (r) achados.set(r.linha, r);
+    }
+  }
+  return [...achados.values()];
+}
+
+/**
+ * Tenta consertar uma leitura (OCR) com UM dígito a mais, a menos ou trocado. Devolve todos os resultados
+ * válidos distintos: quem chama só deve aceitar quando houver exatamente um e ele bater com os demais dados.
+ */
+export function repararLeitura(entrada: string): BoletoLido[] {
+  const d = entrada.replace(/D/g, "");
+  const achados = new Map<string, BoletoLido>();
+  const tentar = (v: string) => {
+    const r = lerBoleto(v);
+    if (r) achados.set(r.linha, r);
+  };
+  for (const alvo of [44, 47, 48]) {
+    if (d.length === alvo + 1) {
+      for (let i = 0; i < d.length; i++) tentar(d.slice(0, i) + d.slice(i + 1)); // um dígito a mais
+    } else if (d.length === alvo - 1) {
+      for (let i = 0; i <= d.length; i++) for (let n = 0; n < 10; n++) tentar(d.slice(0, i) + n + d.slice(i)); // um a menos
+    } else if (d.length === alvo) {
+      for (let i = 0; i < d.length; i++) for (let n = 0; n < 10; n++) if (String(n) !== d[i]) tentar(d.slice(0, i) + n + d.slice(i + 1)); // um trocado
+    }
+  }
+  return [...achados.values()];
 }
 
 /** Formata a linha digitável como no boleto impresso. */

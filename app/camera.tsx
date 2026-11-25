@@ -29,7 +29,7 @@ export default function Camera({ aoCapturar, aoFechar }: Props) {
       }
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 2560 }, height: { ideal: 1440 } },
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } },
           audio: false,
         });
         if (!ativo) {

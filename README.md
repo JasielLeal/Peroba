@@ -18,11 +18,11 @@ A tabela `boletos` é criada sozinha na primeira consulta.
 ## Cadastro por foto
 
 "Novo boleto" abre a câmera do celular. A foto (ou um PDF, pelo botão "Foto ou PDF" dentro do cadastro) é
-reduzida no aparelho e enviada para `/api/boleto`, onde um modelo de visão da OpenAI (`gpt-4.1` por padrão) extrai linha digitável, valor,
+enviada junto com 7 faixas ampliadas (o modelo reduz a imagem inteira e borra números miúdos; com as faixas a linha digitável sai legível) para `/api/boleto`, onde um modelo de visão da OpenAI (`gpt-5.4` por padrão) extrai linha digitável, valor,
 vencimento, beneficiário e número do documento. O app **não confia cegamente na leitura**: a linha digitável
 só é aceita se os dígitos verificadores conferem, e valor e vencimento são conferidos com os que estão
 embutidos no próprio código. Se algo não bater, o formulário mostra um aviso. O tipo (imposto / distribuidora)
-é sugerido e pode ser alterado. Requer `OPENAI_API_KEY` (modelo trocável em `OPENAI_MODEL`). A foto não é guardada; só vai para a API para ler.
+é sugerido e pode ser alterado. Requer `OPENAI_API_KEY` (modelo trocável em `OPENAI_MODEL`). Se a linha digitável vier com 1 dígito errado, o app o corrige sozinho quando só há uma correção possível que fecha nos dígitos verificadores e no valor impresso; havendo mais de uma, a IA escolhe olhando a imagem; se nada fechar, a linha fica em branco. PDF é a melhor entrada. A foto não é guardada; só vai para a API para ler.
 
 ## Como funciona o lembrete
 
