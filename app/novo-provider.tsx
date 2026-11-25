@@ -4,16 +4,17 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { CircleCheck } from "lucide-react";
 import NovoBoleto from "./novo-boleto";
 
-type Ctx = { abrir: (escanear?: boolean) => void };
+// abrir() sem argumento abre o formulário vazio; abrir(arquivo) abre já lendo a foto/PDF do boleto.
+type Ctx = { abrir: (arquivo?: File) => void };
 const NovoCtx = createContext<Ctx>({ abrir: () => {} });
 export const useNovoBoleto = () => useContext(NovoCtx);
 
 // Mantém a folha de cadastro e o aviso de sucesso em um só lugar, acessível de qualquer tela.
 export default function NovoProvider({ children }: { children: React.ReactNode }) {
-  const [aberto, setAberto] = useState<{ escanear: boolean } | null>(null);
+  const [aberto, setAberto] = useState<{ arquivo: File | null } | null>(null);
   const [sucesso, setSucesso] = useState(false);
 
-  const abrir = useCallback((escanear = false) => setAberto({ escanear }), []);
+  const abrir = useCallback((arquivo?: File) => setAberto({ arquivo: arquivo ?? null }), []);
 
   useEffect(() => {
     if (!sucesso) return;
@@ -26,7 +27,7 @@ export default function NovoProvider({ children }: { children: React.ReactNode }
       {children}
       {aberto && (
         <NovoBoleto
-          escanearAoAbrir={aberto.escanear}
+          arquivoInicial={aberto.arquivo}
           aoFechar={() => setAberto(null)}
           aoSalvar={() => {
             setAberto(null);

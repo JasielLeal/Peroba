@@ -43,7 +43,7 @@ export default function Barra({ ativo }: { ativo: Aba }) {
         <nav aria-label="Navegação principal">
           {link("inicio", "/", "Início", House)}
           {link("analises", "/analises", "Análises", ChartPie)}
-          <button className="central" onClick={() => abrir(true)} aria-label="Novo boleto (escanear)">
+          <button className="central" onClick={() => abrir()} aria-label="Novo boleto">
             <Plus aria-hidden />
           </button>
           {link("pagos", "/pagos", "Pagos", CircleCheck)}

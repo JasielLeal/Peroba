@@ -5,6 +5,8 @@ export type BoletoLido = {
   linha: string; // linha digitável só com dígitos
   valorCentavos: number | null;
   vencimento: string | null; // YYYY-MM-DD
+  /** Arrecadação de governo (prefeitura, órgão governamental, multa de trânsito): provável imposto. */
+  governo?: boolean;
 };
 
 function mod10(s: string): number {
@@ -64,9 +66,13 @@ function convenioDeBarras(b: string): BoletoLido {
     const bloco = b.slice(i, i + 11);
     linha += bloco + mod(bloco);
   }
-  // Valor só é confiável quando o 3º dígito é 6 ou 7 (valor efetivo em reais).
-  const valor = b[2] === "6" || b[2] === "7" ? Number(b.slice(4, 15)) : 0;
-  return { linha, valorCentavos: valor > 0 ? valor : null, vencimento: null };
+  // 3º dígito: 6 = valor efetivo (módulo 10), 7 = valor de referência (mod 10),
+  //            8 = valor efetivo (módulo 11), 9 = valor de referência (mod 11).
+  // Só 6 e 8 trazem o valor em reais nas posições 5-15 (11 dígitos, em centavos).
+  const valor = b[2] === "6" || b[2] === "8" ? Number(b.slice(4, 15)) : 0;
+  // 2º dígito = segmento: 1 prefeituras, 5 órgãos governamentais, 7 multas de trânsito.
+  const governo = ["1", "5", "7"].includes(b[1]);
+  return { linha, valorCentavos: valor > 0 ? valor : null, vencimento: null, governo };
 }
 
 function barrasDeLinha(l: string): string | null {

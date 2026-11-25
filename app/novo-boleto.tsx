@@ -1,9 +1,9 @@
 "use client";
 
-import { useActionState, useCallback, useEffect, useState } from "react";
-import { CircleAlert, Info, ScanBarcode, X } from "lucide-react";
+import { useActionState, useCallback, useEffect, useRef, useState } from "react";
+import { Camera, CircleAlert, FileUp, Info, X } from "lucide-react";
 import { criarBoleto, listarFornecedores } from "./actions";
-import Scanner from "./scanner";
+import { lerBoletoDeArquivo } from "@/lib/foto";
 import { formatarLinha, lerBoleto } from "@/lib/boleto";
 import { CATEGORIAS, type Categoria } from "@/lib/categorias";
 
@@ -12,16 +12,16 @@ const vazio = { descricao: "", fornecedor: "", valor: "", vencimento: "", linha:
 export default function NovoBoleto({
   aoFechar,
   aoSalvar,
-  escanearAoAbrir,
+  arquivoInicial,
 }: {
   aoFechar: () => void;
   aoSalvar: () => void;
-  escanearAoAbrir: boolean;
+  arquivoInicial: File | null;
 }) {
   const [campos, setCampos] = useState(vazio);
   const [categoria, setCategoria] = useState<Categoria>("distribuidora");
-  const [escaneando, setEscaneando] = useState(escanearAoAbrir);
-  const [aviso, setAviso] = useState<string | null>(null);
+  const [lendo, setLendo] = useState(false);
+  const [aviso, setAviso] = useState<{ texto: string; erro: boolean }[]>([]);
   const [fornecedores, setFornecedores] = useState<string[]>([]);
 
   useEffect(() => {
@@ -34,11 +34,47 @@ export default function NovoBoleto({
     return r;
   }, null);
 
-  // Recebe barras ou linha digitável e preenche linha, valor e vencimento.
-  const preencher = useCallback((texto: string) => {
-    const b = lerBoleto(texto);
+  // Foto ou PDF -> leitura por IA (validada pelos dígitos verificadores) -> preenche o formulário.
+  const lerArquivo = useCallback(async (arquivo: File) => {
+    setLendo(true);
+    setAviso([]);
+    try {
+      const r = await lerBoletoDeArquivo(arquivo);
+      setCampos((c) => ({
+        descricao: r.descricao ?? c.descricao,
+        fornecedor: r.fornecedor ?? c.fornecedor,
+        valor: r.valorCentavos ? (r.valorCentavos / 100).toFixed(2).replace(".", ",") : c.valor,
+        vencimento: r.vencimento ?? c.vencimento,
+        linha: r.linha ?? c.linha,
+      }));
+      if (r.categoria) setCategoria(r.categoria);
+      setAviso([
+        { texto: "Boleto lido. Confira os campos antes de salvar.", erro: false },
+        ...r.avisos.map((texto) => ({ texto, erro: true })),
+      ]);
+    } catch (e) {
+      setAviso([{ texto: (e as Error).message, erro: true }]);
+    } finally {
+      setLendo(false);
+    }
+  }, []);
+
+  // Aberto direto pela foto do atalho "Novo boleto": já começa a ler.
+  const iniciou = useRef(false);
+  useEffect(() => {
+    if (arquivoInicial && !iniciou.current) {
+      iniciou.current = true;
+      void lerArquivo(arquivoInicial);
+    }
+  }, [arquivoInicial, lerArquivo]);
+
+  // Linha digitável colada à mão: valida e preenche valor/vencimento, sem IA.
+  const aoColarLinha = (texto: string) => {
+    const d = texto.replace(/\D/g, "");
+    if (d.length < 44) return;
+    const b = lerBoleto(d);
     if (!b) {
-      setAviso("Código inválido (dígitos não conferem). Tente escanear de novo.");
+      setAviso([{ texto: "Código inválido (dígitos não conferem). Confira os números.", erro: true }]);
       return;
     }
     setCampos((c) => ({
@@ -47,129 +83,117 @@ export default function NovoBoleto({
       valor: b.valorCentavos ? (b.valorCentavos / 100).toFixed(2).replace(".", ",") : c.valor,
       vencimento: b.vencimento ?? c.vencimento,
     }));
-    setAviso(
-      b.vencimento && b.valorCentavos
-        ? "Código lido. Confira valor e vencimento."
-        : "Código lido. Este boleto não traz " + (b.vencimento ? "valor" : "vencimento") + ": complete à mão.",
-    );
-  }, []);
-
-  // Aberto direto no scanner: cancelar volta para a home. Depois da primeira leitura (ou ao
-  // escanear de dentro do formulário), cancelar volta ao formulário.
-  const [primeiroScan, setPrimeiroScan] = useState(escanearAoAbrir);
-
-  const aoLer = useCallback(
-    (d: string) => {
-      setPrimeiroScan(false);
-      setEscaneando(false);
-      preencher(d);
-    },
-    [preencher],
-  );
+    if (b.governo) setCategoria("imposto");
+    setAviso([{ texto: "Código lido. Confira valor e vencimento.", erro: false }]);
+  };
 
   const set = (k: keyof typeof vazio) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setCampos((c) => ({ ...c, [k]: e.target.value }));
 
-  const rotuloFornecedor = categoria === "distribuidora" ? "Distribuidora" : categoria === "imposto" ? "Órgão / tributo (opcional)" : "Favorecido (opcional)";
+  const escolher = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = e.target.files?.[0];
+    e.target.value = ""; // permite escolher o mesmo arquivo de novo
+    if (arquivo) void lerArquivo(arquivo);
+  };
+
+  const rotuloFornecedor =
+    categoria === "distribuidora" ? "Distribuidora" : categoria === "imposto" ? "Órgão / tributo (opcional)" : "Favorecido (opcional)";
 
   return (
-    <>
-      {escaneando && (
-        <Scanner
-          aoLer={aoLer}
-          aoDigitar={() => {
-            setPrimeiroScan(false);
-            setEscaneando(false);
-          }}
-          aoFechar={() => {
-            if (primeiroScan) aoFechar();
-            else setEscaneando(false);
-          }}
-        />
-      )}
-      <div className="folha-fundo" onClick={(e) => e.target === e.currentTarget && aoFechar()}>
-        <div className="folha" role="dialog" aria-modal="true" aria-label="Novo boleto">
-          <div className="cab">
-            <h2>Novo boleto</h2>
-            <button type="button" className="compacto icone sutil" aria-label="Fechar" onClick={aoFechar}>
-              <X className="i" aria-hidden />
-            </button>
-          </div>
-          <form action={acao} className="campos">
-            <button type="button" onClick={() => setEscaneando(true)}>
-              <ScanBarcode className="i" aria-hidden /> Escanear código de barras
-            </button>
-            <label>
-              Linha digitável (opcional)
-              <textarea
-                name="linha"
-                rows={2}
-                inputMode="numeric"
-                placeholder="Escaneie ou cole aqui"
-                value={campos.linha}
-                onChange={set("linha")}
-                onBlur={(e) => {
-                  const d = e.target.value.replace(/\D/g, "");
-                  if (d.length >= 44) preencher(d);
-                }}
-              />
-            </label>
-            {aviso && (
-              <p className="msg info" role="status">
-                <Info className="i" aria-hidden /> {aviso}
-              </p>
-            )}
-
-            <fieldset className="segmentos">
-              <legend>Tipo</legend>
-              {CATEGORIAS.map((c) => (
-                <label key={c.id} className={categoria === c.id ? "on" : ""}>
-                  <input type="radio" name="categoria" value={c.id} checked={categoria === c.id} onChange={() => setCategoria(c.id)} />
-                  {c.rotulo}
-                </label>
-              ))}
-            </fieldset>
-
-            <label>
-              {rotuloFornecedor}
-              <input
-                name="fornecedor"
-                list="lista-fornecedores"
-                placeholder={categoria === "distribuidora" ? "Ex.: Ambev" : categoria === "imposto" ? "Ex.: DAS, Prefeitura" : ""}
-                required={categoria === "distribuidora"}
-                autoComplete="off"
-                value={campos.fornecedor}
-                onChange={set("fornecedor")}
-              />
-              <datalist id="lista-fornecedores">
-                {fornecedores.map((f) => <option key={f} value={f} />)}
-              </datalist>
-            </label>
-            <label>
-              Descrição {campos.fornecedor ? "(opcional)" : ""}
-              <input name="descricao" placeholder="Ex.: NF 1234" required={!campos.fornecedor} value={campos.descricao} onChange={set("descricao")} />
-            </label>
-            <div className="duas">
-              <label>
-                Valor (R$)
-                <input name="valor" inputMode="decimal" placeholder="150,00" required value={campos.valor} onChange={set("valor")} />
-              </label>
-              <label>
-                Vencimento
-                <input name="vencimento" type="date" required value={campos.vencimento} onChange={set("vencimento")} />
-              </label>
-            </div>
-            {erro && (
-              <p className="msg erro" role="alert">
-                <CircleAlert className="i" aria-hidden /> {erro}
-              </p>
-            )}
-            <button className="primario" disabled={pendente}>
-              {pendente ? <span className="spin" aria-hidden /> : "Salvar boleto"}
-            </button>
-          </form>
+    <div className="folha-fundo" onClick={(e) => e.target === e.currentTarget && !lendo && aoFechar()}>
+      <div className="folha" role="dialog" aria-modal="true" aria-label="Novo boleto">
+        <div className="cab">
+          <h2>Novo boleto</h2>
+          <button type="button" className="compacto icone sutil" aria-label="Fechar" onClick={aoFechar}>
+            <X className="i" aria-hidden />
+          </button>
         </div>
+
+        <div className="duas leitura">
+          <label className="btn primario" aria-disabled={lendo}>
+            <Camera className="i" aria-hidden /> Fotografar
+            <input type="file" accept="image/*" capture="environment" onChange={escolher} disabled={lendo} hidden />
+          </label>
+          <label className="btn" aria-disabled={lendo}>
+            <FileUp className="i" aria-hidden /> Foto ou PDF
+            <input type="file" accept="image/*,application/pdf" onChange={escolher} disabled={lendo} hidden />
+          </label>
+        </div>
+
+        {lendo && (
+          <p className="msg info lendo" role="status">
+            <span className="spin" aria-hidden /> Lendo o boleto… leva alguns segundos.
+          </p>
+        )}
+        {aviso.map((a, i) => (
+          <p key={i} className={`msg ${a.erro ? "erro" : "info"}`} role={a.erro ? "alert" : "status"}>
+            {a.erro ? <CircleAlert className="i" aria-hidden /> : <Info className="i" aria-hidden />} {a.texto}
+          </p>
+        ))}
+
+        <form action={acao} className="campos" style={{ marginTop: 14 }}>
+          <label>
+            Linha digitável (opcional)
+            <textarea
+              name="linha"
+              rows={2}
+              inputMode="numeric"
+              placeholder="Lida da foto ou cole aqui"
+              value={campos.linha}
+              onChange={set("linha")}
+              onBlur={(e) => aoColarLinha(e.target.value)}
+            />
+          </label>
+
+          <fieldset className="segmentos">
+            <legend>Tipo</legend>
+            {CATEGORIAS.map((c) => (
+              <label key={c.id} className={categoria === c.id ? "on" : ""}>
+                <input type="radio" name="categoria" value={c.id} checked={categoria === c.id} onChange={() => setCategoria(c.id)} />
+                {c.rotulo}
+              </label>
+            ))}
+          </fieldset>
+
+          <label>
+            {rotuloFornecedor}
+            <input
+              name="fornecedor"
+              list="lista-fornecedores"
+              placeholder={categoria === "distribuidora" ? "Ex.: Ambev" : categoria === "imposto" ? "Ex.: DAS, Prefeitura" : ""}
+              required={categoria === "distribuidora"}
+              autoComplete="off"
+              value={campos.fornecedor}
+              onChange={set("fornecedor")}
+            />
+            <datalist id="lista-fornecedores">
+              {fornecedores.map((f) => <option key={f} value={f} />)}
+            </datalist>
+          </label>
+          <label>
+            Descrição {campos.fornecedor ? "(opcional)" : ""}
+            <input name="descricao" placeholder="Ex.: NF 1234" required={!campos.fornecedor} value={campos.descricao} onChange={set("descricao")} />
+          </label>
+          <div className="duas">
+            <label>
+              Valor (R$)
+              <input name="valor" inputMode="decimal" placeholder="150,00" required value={campos.valor} onChange={set("valor")} />
+            </label>
+            <label>
+              Vencimento
+              <input name="vencimento" type="date" required value={campos.vencimento} onChange={set("vencimento")} />
+            </label>
+          </div>
+          {erro && (
+            <p className="msg erro" role="alert">
+              <CircleAlert className="i" aria-hidden /> {erro}
+            </p>
+          )}
+          <button className="primario" disabled={pendente || lendo}>
+            {pendente ? <span className="spin" aria-hidden /> : "Salvar boleto"}
+          </button>
+        </form>
       </div>
-    </>
+    </div>
   );
 }

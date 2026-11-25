@@ -15,6 +15,15 @@ npm run build && npm start   # produção
 Requer Node 20+ e um banco no [Neon](https://neon.tech): cole a string de conexão em `DATABASE_URL`.
 A tabela `boletos` é criada sozinha na primeira consulta.
 
+## Cadastro por foto
+
+"Novo boleto" abre a câmera do celular. A foto (ou um PDF, pelo botão "Foto ou PDF" dentro do cadastro) é
+reduzida no aparelho e enviada para `/api/boleto`, onde um modelo de visão da OpenAI (`gpt-4.1` por padrão) extrai linha digitável, valor,
+vencimento, beneficiário e número do documento. O app **não confia cegamente na leitura**: a linha digitável
+só é aceita se os dígitos verificadores conferem, e valor e vencimento são conferidos com os que estão
+embutidos no próprio código. Se algo não bater, o formulário mostra um aviso. O tipo (imposto / distribuidora)
+é sugerido e pode ser alterado. Requer `OPENAI_API_KEY` (modelo trocável em `OPENAI_MODEL`). A foto não é guardada; só vai para a API para ler.
+
 ## Como funciona o lembrete
 
 - `instrumentation.ts` roda um agendador dentro do servidor (uma vez por dia, depois de `LEMBRETE_HORA`,
@@ -58,7 +67,7 @@ no caso de distribuidoras, o **nome da distribuidora**. Boletos antigos ficam co
 1. Suba o projeto para um repositório e importe na Vercel (framework Next.js, sem configurar build).
 2. Em **Settings > Environment Variables**, cadastre as mesmas variáveis do `.env.example`:
    `DATABASE_URL`, `APP_SENHA`, `SESSION_SECRET`, `EVOLUTION_URL`, `EVOLUTION_API_KEY`,
-   `EVOLUTION_INSTANCE`, `WHATSAPP_DESTINO`, `NOME_DESTINO`, `LEMBRETE_DIAS` e `CRON_SECRET`.
+   `OPENAI_API_KEY`, `EVOLUTION_INSTANCE`, `WHATSAPP_DESTINO`, `NOME_DESTINO`, `LEMBRETE_DIAS` e `CRON_SECRET`.
 3. O `vercel.json` já define o cron diário (`/api/lembretes` às 08:00 UTC = 5h de Brasília) e a região
    `gru1` (São Paulo), perto de um banco Neon `sa-east-1`. A Vercel envia o `CRON_SECRET` sozinha no
    cabeçalho `Authorization`. Trocar o horário: ajuste o `schedule` (sempre em UTC; o plano Hobby
