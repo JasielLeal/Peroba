@@ -285,3 +285,25 @@ button.check svg { width: 16px; height: 16px; stroke-width: 3; }
 .lendo { align-items: center; }
 .folha .msg + .msg { margin-top: 8px; }
 .atalho input[hidden] { display: none; }
+
+/* Câmera com moldura */
+.camera { position: fixed; inset: 0; z-index: 80; background: #000; overflow: hidden; }
+.camera video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.camera .guia { position: absolute; left: 5%; right: 5%; top: 9%; bottom: 24%; border-radius: 14px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55); pointer-events: none; }
+.camera .guia i { position: absolute; width: 34px; height: 34px; border: 4px solid #fff; }
+.camera .guia i:nth-child(1) { top: -2px; left: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: 14px; }
+.camera .guia i:nth-child(2) { top: -2px; right: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: 14px; }
+.camera .guia i:nth-child(3) { bottom: -2px; left: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: 14px; }
+.camera .guia i:nth-child(4) { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: 14px; }
+.camera .dica { position: absolute; left: 16px; right: 16px; bottom: calc(112px + env(safe-area-inset-bottom)); margin: 0; text-align: center; color: #fff; font-size: 0.88rem; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
+.camera .comandos { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: space-around; padding: 16px 24px calc(20px + env(safe-area-inset-bottom)); }
+.camera .camera-btn { width: 48px; height: 48px; min-height: 0; padding: 0; border-radius: 50%; border: 0; background: rgba(255, 255, 255, 0.18); color: #fff; }
+.camera .camera-btn:hover { background: rgba(255, 255, 255, 0.28); }
+.camera .camera-btn[aria-pressed="true"] { background: #fff; color: #000; }
+.camera .vazio-btn { display: inline-block; background: none; }
+.camera .disparo { width: 72px; height: 72px; min-height: 0; padding: 0; border-radius: 50%; border: 4px solid #fff; background: rgba(255, 255, 255, 0.25); color: #fff; }
+.camera .disparo:hover { background: rgba(255, 255, 255, 0.4); }
+.camera .disparo svg, .camera .camera-btn svg { width: 26px; height: 26px; }
+.camera-erro { display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; color: #fff; }
+.camera-erro p { margin: 0; max-width: 320px; }
+.camera-erro .btn.primario { cursor: pointer; }

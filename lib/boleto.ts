@@ -20,6 +20,23 @@ function mod10(s: string): number {
   return (10 - (soma % 10)) % 10;
 }
 
+// Dígito verificador geral do boleto bancário (5ª posição do código de barras), módulo 11 com pesos 2-9.
+// Protege fator de vencimento e valor, que não têm dígito próprio na linha digitável.
+function mod11Banco(s: string): number {
+  let soma = 0;
+  let peso = 2;
+  for (let i = s.length - 1; i >= 0; i--) {
+    soma += Number(s[i]) * peso;
+    peso = peso === 9 ? 2 : peso + 1;
+  }
+  const dv = 11 - (soma % 11);
+  return dv === 0 || dv === 10 || dv === 11 ? 1 : dv;
+}
+
+function dvGeralConfere(barras: string): boolean {
+  return mod11Banco(barras.slice(0, 4) + barras.slice(5)) === Number(barras[4]);
+}
+
 function mod11Convenio(s: string): number {
   let soma = 0;
   let peso = 2;
@@ -93,11 +110,15 @@ function barrasDeLinha(l: string): string | null {
 /** Aceita barras (44) ou linha digitável (47/48), com ou sem pontos/espaços. Retorna null se inválido. */
 export function lerBoleto(entrada: string): BoletoLido | null {
   const d = entrada.replace(/\D/g, "");
-  if (d.length === 44) return d[0] === "8" ? convenioDeBarras(d) : bancarioDeBarras(d);
+  if (d.length === 44) {
+    if (d[0] === "8") return convenioDeBarras(d);
+    return dvGeralConfere(d) ? bancarioDeBarras(d) : null;
+  }
   if (d.length === 47 || d.length === 48) {
     const barras = barrasDeLinha(d);
     if (!barras) return null; // dígito verificador não bate: provável erro de leitura/digitação
-    return d.length === 47 ? bancarioDeBarras(barras) : convenioDeBarras(barras);
+    if (d.length === 47) return dvGeralConfere(barras) ? bancarioDeBarras(barras) : null; // valor/vencimento não podem ter erro
+    return convenioDeBarras(barras);
   }
   return null;
 }

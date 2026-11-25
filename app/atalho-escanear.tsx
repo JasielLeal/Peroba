@@ -4,27 +4,16 @@ import Link from "next/link";
 import { ChartPie, CircleCheck, ClipboardList, ScanText } from "lucide-react";
 import { useNovoBoleto } from "./novo-provider";
 
-// Ações rápidas da tela inicial. "Novo boleto" abre direto a câmera do celular; a foto é lida por IA
-// e abre o formulário já preenchido. Cancelar a câmera não faz nada (continua na tela inicial).
+// Ações rápidas da tela inicial. "Novo boleto" abre a câmera com moldura; a foto é lida por IA
+// e abre o formulário já preenchido. Cancelar a câmera volta para a tela inicial.
 export default function Atalhos() {
-  const { abrir } = useNovoBoleto();
+  const { fotografar } = useNovoBoleto();
   return (
     <nav className="atalhos" aria-label="Ações rápidas">
-      <label className="atalho destaque">
+      <button className="atalho destaque" onClick={fotografar}>
         <span className="quadro"><ScanText aria-hidden /></span>
         Novo boleto
-        <input
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={(e) => {
-            const arquivo = e.target.files?.[0];
-            e.target.value = "";
-            if (arquivo) abrir(arquivo);
-          }}
-        />
-      </label>
+      </button>
       <Link href="/estoque" className="atalho">
         <span className="quadro"><ClipboardList aria-hidden /></span>
         Estoque

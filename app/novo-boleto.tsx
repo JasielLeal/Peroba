@@ -1,10 +1,12 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useRef, useState } from "react";
-import { Camera, CircleAlert, FileUp, Info, X } from "lucide-react";
+import { Camera as IconeCamera, CircleAlert, FileUp, Info, X } from "lucide-react";
 import { criarBoleto, listarFornecedores } from "./actions";
+import Camera from "./camera";
 import { lerBoletoDeArquivo } from "@/lib/foto";
 import { formatarLinha, lerBoleto } from "@/lib/boleto";
+import { mascaraLinha, mascaraValor, valorParaInput } from "@/lib/mascaras";
 import { CATEGORIAS, type Categoria } from "@/lib/categorias";
 
 const vazio = { descricao: "", fornecedor: "", valor: "", vencimento: "", linha: "" };
@@ -21,6 +23,7 @@ export default function NovoBoleto({
   const [campos, setCampos] = useState(vazio);
   const [categoria, setCategoria] = useState<Categoria>("distribuidora");
   const [lendo, setLendo] = useState(false);
+  const [camera, setCamera] = useState(false);
   const [aviso, setAviso] = useState<{ texto: string; erro: boolean }[]>([]);
   const [fornecedores, setFornecedores] = useState<string[]>([]);
 
@@ -43,7 +46,7 @@ export default function NovoBoleto({
       setCampos((c) => ({
         descricao: r.descricao ?? c.descricao,
         fornecedor: r.fornecedor ?? c.fornecedor,
-        valor: r.valorCentavos ? (r.valorCentavos / 100).toFixed(2).replace(".", ",") : c.valor,
+        valor: r.valorCentavos ? valorParaInput(r.valorCentavos) : c.valor,
         vencimento: r.vencimento ?? c.vencimento,
         linha: r.linha ?? c.linha,
       }));
@@ -80,7 +83,7 @@ export default function NovoBoleto({
     setCampos((c) => ({
       ...c,
       linha: formatarLinha(b.linha),
-      valor: b.valorCentavos ? (b.valorCentavos / 100).toFixed(2).replace(".", ",") : c.valor,
+      valor: b.valorCentavos ? valorParaInput(b.valorCentavos) : c.valor,
       vencimento: b.vencimento ?? c.vencimento,
     }));
     if (b.governo) setCategoria("imposto");
@@ -100,6 +103,16 @@ export default function NovoBoleto({
     categoria === "distribuidora" ? "Distribuidora" : categoria === "imposto" ? "Órgão / tributo (opcional)" : "Favorecido (opcional)";
 
   return (
+    <>
+    {camera && (
+      <Camera
+        aoFechar={() => setCamera(false)}
+        aoCapturar={(arquivo) => {
+          setCamera(false);
+          void lerArquivo(arquivo);
+        }}
+      />
+    )}
     <div className="folha-fundo" onClick={(e) => e.target === e.currentTarget && !lendo && aoFechar()}>
       <div className="folha" role="dialog" aria-modal="true" aria-label="Novo boleto">
         <div className="cab">
@@ -110,10 +123,9 @@ export default function NovoBoleto({
         </div>
 
         <div className="duas leitura">
-          <label className="btn primario" aria-disabled={lendo}>
-            <Camera className="i" aria-hidden /> Fotografar
-            <input type="file" accept="image/*" capture="environment" onChange={escolher} disabled={lendo} hidden />
-          </label>
+          <button type="button" className="primario" onClick={() => setCamera(true)} disabled={lendo}>
+            <IconeCamera className="i" aria-hidden /> Fotografar
+          </button>
           <label className="btn" aria-disabled={lendo}>
             <FileUp className="i" aria-hidden /> Foto ou PDF
             <input type="file" accept="image/*,application/pdf" onChange={escolher} disabled={lendo} hidden />
@@ -140,7 +152,8 @@ export default function NovoBoleto({
               inputMode="numeric"
               placeholder="Lida da foto ou cole aqui"
               value={campos.linha}
-              onChange={set("linha")}
+              maxLength={60}
+              onChange={(e) => setCampos((c) => ({ ...c, linha: mascaraLinha(e.target.value) }))}
               onBlur={(e) => aoColarLinha(e.target.value)}
             />
           </label>
@@ -177,7 +190,15 @@ export default function NovoBoleto({
           <div className="duas">
             <label>
               Valor (R$)
-              <input name="valor" inputMode="decimal" placeholder="150,00" required value={campos.valor} onChange={set("valor")} />
+              <input
+                name="valor"
+                inputMode="numeric"
+                placeholder="0,00"
+                required
+                autoComplete="off"
+                value={campos.valor}
+                onChange={(e) => setCampos((c) => ({ ...c, valor: mascaraValor(e.target.value) }))}
+              />
             </label>
             <label>
               Vencimento
@@ -195,5 +216,6 @@ export default function NovoBoleto({
         </form>
       </div>
     </div>
+    </>
   );
 }

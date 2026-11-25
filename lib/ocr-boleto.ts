@@ -1,4 +1,5 @@
 import { formatarLinha, lerBoleto } from "./boleto";
+import { formatarData, formatarReais } from "./datas";
 import type { Categoria } from "./categorias";
 
 export type LeituraBoleto = {
@@ -63,7 +64,7 @@ type RespostaOpenAI = {
   error?: { message: string };
 };
 
-export async function lerBoletoComIA(base64: string, mediaType: (typeof TIPOS_ACEITOS)[number]): Promise<LeituraBoleto> {
+async function chamarModelo(base64: string, mediaType: (typeof TIPOS_ACEITOS)[number], reforco: boolean): Promise<Extraido> {
   const chave = process.env.OPENAI_API_KEY;
   if (!chave) throw new ErroLeitura("Leitura por foto não configurada (falta OPENAI_API_KEY).", 503);
 
@@ -72,6 +73,10 @@ export async function lerBoletoComIA(base64: string, mediaType: (typeof TIPOS_AC
     mediaType === "application/pdf"
       ? { type: "file", file: { filename: "boleto.pdf", file_data: dataUrl } }
       : { type: "image_url", image_url: { url: dataUrl, detail: "high" } }; // "high" para ler os dígitos miúdos
+
+  const pedido = reforco
+    ? "Extraia os dados deste boleto. ATENÇÃO: uma leitura anterior teve números duvidosos. Releia com o máximo de cuidado, dígito por dígito, principalmente o valor e a data, e confira a linha digitável com o valor do documento impresso."
+    : "Extraia os dados deste boleto.";
 
   let res: Response;
   try {
@@ -84,11 +89,11 @@ export async function lerBoletoComIA(base64: string, mediaType: (typeof TIPOS_AC
         max_tokens: 1500,
         messages: [
           { role: "system", content: INSTRUCOES },
-          { role: "user", content: [arquivo, { type: "text", text: "Extraia os dados deste boleto." }] },
+          { role: "user", content: [arquivo, { type: "text", text: pedido }] },
         ],
         response_format: { type: "json_schema", json_schema: { name: "boleto", strict: true, schema: SCHEMA } },
       }),
-      signal: AbortSignal.timeout(50_000),
+      signal: AbortSignal.timeout(25_000), // duas tentativas cabem nos 60 s da função
     });
   } catch {
     throw new ErroLeitura("O serviço de leitura não respondeu a tempo. Tente de novo.", 504);
@@ -107,14 +112,36 @@ export async function lerBoletoComIA(base64: string, mediaType: (typeof TIPOS_AC
   if (escolha?.finish_reason === "length") throw new ErroLeitura("A leitura foi cortada. Tente com uma foto mais nítida.", 422);
   if (!escolha?.message.content) throw new ErroLeitura("Não consegui ler o boleto. Tente outra foto.", 422);
 
-  return validar(JSON.parse(escolha.message.content) as Extraido);
+  return JSON.parse(escolha.message.content) as Extraido;
 }
 
-/** Confere o que a IA leu com os dígitos verificadores e com o valor/vencimento embutidos no código. */
+const nota = (r: LeituraBoleto) => (r.linha ? 2 : 0) + (r.avisos.length === 0 ? 1 : 0);
+
+export async function lerBoletoComIA(base64: string, mediaType: (typeof TIPOS_ACEITOS)[number]): Promise<LeituraBoleto> {
+  const primeira = validar(await chamarModelo(base64, mediaType, false));
+  if (primeira.avisos.length === 0) return primeira;
+
+  // Algo não bateu (dígito lido errado, valor divergente): relê uma vez com mais cuidado e fica com o melhor resultado.
+  try {
+    const segunda = validar(await chamarModelo(base64, mediaType, true));
+    return nota(segunda) > nota(primeira) ? segunda : primeira;
+  } catch {
+    return primeira;
+  }
+}
+
+/**
+ * Confere o que a IA leu com os dígitos verificadores e com o valor/vencimento embutidos no código.
+ * O dígito verificador não pega todo erro (cerca de 1 em 5 erros de um dígito no valor escapa quando o
+ * DV geral é 1), por isso o valor do código também é comparado com o valor impresso.
+ */
 export function validar(x: Extraido): LeituraBoleto {
   const avisos: string[] = [];
   const candidatos = [x.linha_digitavel, x.codigo_barras].filter((c): c is string => !!c);
   const codigo = candidatos.map((c) => lerBoleto(c)).find((r) => r !== null) ?? null;
+
+  const impresso = x.valor_reais !== null ? Math.round(x.valor_reais * 100) : null;
+  const vencimentoImpresso = x.vencimento && /^d{4}-d{2}-d{2}$/.test(x.vencimento) ? x.vencimento : null;
 
   if (!codigo) {
     avisos.push(
@@ -124,24 +151,32 @@ export function validar(x: Extraido): LeituraBoleto {
     );
   }
 
-  const impresso = x.valor_reais !== null ? Math.round(x.valor_reais * 100) : null;
+  let linha = codigo ? formatarLinha(codigo.linha) : null;
   let valorCentavos = codigo?.valorCentavos ?? impresso;
-  if (codigo?.valorCentavos && impresso && Math.abs(codigo.valorCentavos - impresso) > 1) {
-    avisos.push(`O valor do código (${(codigo.valorCentavos / 100).toFixed(2)}) difere do impresso (${(impresso / 100).toFixed(2)}). Confira.`);
-    valorCentavos = codigo.valorCentavos; // o código validado é mais confiável que a leitura da imagem
-  }
+  let vencimento = codigo?.vencimento ?? vencimentoImpresso;
 
-  const vencimentoImpresso = x.vencimento && /^\d{4}-\d{2}-\d{2}$/.test(x.vencimento) ? x.vencimento : null;
-  if (codigo?.vencimento && vencimentoImpresso && codigo.vencimento !== vencimentoImpresso) {
-    avisos.push("O vencimento do código difere do impresso. Confira.");
+  if (codigo) {
+    const valorDiverge = !!codigo.valorCentavos && impresso !== null && Math.abs(codigo.valorCentavos - impresso) > 1;
+    const vencDiverge = !!codigo.vencimento && !!vencimentoImpresso && codigo.vencimento !== vencimentoImpresso;
+    if (valorDiverge || vencDiverge) {
+      // As duas leituras discordam e não dá para saber qual está certa. Uma linha digitável errada é pior
+      // que nenhuma (poderia ser copiada ou enviada por WhatsApp), então ela fica em branco e vale o impresso.
+      const partes: string[] = [];
+      if (valorDiverge) partes.push(`valor do código ${formatarReais(codigo.valorCentavos!)} x impresso ${formatarReais(impresso!)}`);
+      if (vencDiverge) partes.push(`vencimento do código ${formatarData(codigo.vencimento!)} x impresso ${formatarData(vencimentoImpresso!)}`);
+      avisos.push(`A leitura do código não bate com o que está impresso (${partes.join("; ")}). Usei o impresso e deixei a linha digitável em branco: digite-a ou tire outra foto.`);
+      linha = null;
+      valorCentavos = impresso ?? codigo.valorCentavos;
+      vencimento = vencimentoImpresso ?? codigo.vencimento;
+    }
   }
 
   const categoria: Categoria | null = codigo?.governo ? "imposto" : x.tipo_sugerido;
 
   return {
-    linha: codigo ? formatarLinha(codigo.linha) : null,
+    linha,
     valorCentavos,
-    vencimento: codigo?.vencimento ?? vencimentoImpresso,
+    vencimento,
     fornecedor: x.beneficiario?.trim() || null,
     descricao: x.documento?.trim() || null,
     categoria,
